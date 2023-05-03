@@ -2,6 +2,12 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: |
   Template for CICD pipeline.
 Parameters:
+  RepositoryName:
+    Type: String
+    Default: TestRepo
+  DeployRegion:
+    Type: String
+    Default: eu-central-1
   GitHubOwner:
     Type: String
     AllowedPattern: '[A-Za-z0-9-_]+'
@@ -14,6 +20,9 @@ Parameters:
     AllowedPattern: '[A-Za-z0-9-_]+'
     Default: master
 Resources:
+
+#----------------------------------------------------#
+
   CodeBuildServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -47,17 +56,17 @@ Resources:
                 Action:
                   - 's3:PutObject'
                 Resource: '*'
-              - Sid: ECRPullPolicy
+              - Sid: ECRPolicy
                 Effect: Allow
                 Action:
+                  - 'ecr:CompleteLayerUpload'
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:InitiateLayerUpload'
+                  - 'ecr:PutImage'
+                  - 'ecr:UploadLayerPart'
                   - 'ecr:BatchCheckLayerAvailability'
                   - 'ecr:GetDownloadUrlForLayer'
                   - 'ecr:BatchGetImage'
-                Resource: '*'
-              - Sid: ECRAuthPolicy
-                Effect: Allow
-                Action:
-                  - 'ecr:GetAuthorizationToken'
                 Resource: '*'
               - Sid: S3BucketIdentity
                 Effect: Allow
@@ -65,6 +74,9 @@ Resources:
                   - 's3:GetBucketAcl'
                   - 's3:GetBucketLocation'
                 Resource: '*'
+
+#----------------------------------------------------#
+
   CodePipelineServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -104,24 +116,27 @@ Resources:
                 Action:
                   - 's3:PutObject'
                 Resource: '*'
-              - Sid: ECRPullPolicy
+              - Sid: ECRPolicy
                 Effect: Allow
                 Action:
+                  - 'ecr:CompleteLayerUpload'
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:InitiateLayerUpload'
+                  - 'ecr:PutImage'
+                  - 'ecr:UploadLayerPart'
                   - 'ecr:BatchCheckLayerAvailability'
                   - 'ecr:GetDownloadUrlForLayer'
                   - 'ecr:BatchGetImage'
-                Resource: '*'
-              - Sid: ECRAuthPolicy
-                Effect: Allow
-                Action:
-                  - 'ecr:GetAuthorizationToken'
-                Resource: '*'
+                  Resource: '*'
               - Sid: S3BucketIdentity
                 Effect: Allow
                 Action:
                   - 's3:GetBucketAcl'
                   - 's3:GetBucketLocation'
                 Resource: '*'
+
+#----------------------------------------------------#
+
   CodeBuildSourceCredential:
     Type: 'AWS::CodeBuild::SourceCredential'
     Properties:
@@ -129,6 +144,9 @@ Resources:
       ServerType: GITHUB
       #to be changed for SecretManger
       Token: '{{resolve:ssm:/github/token2:1:1682928042139}}'
+
+#----------------------------------------------------#
+
   CodeBuildProject:
     Type: 'AWS::CodeBuild::Project'
     Properties:
@@ -158,11 +176,48 @@ Resources:
         Type: LINUX_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
         Image: 'aws/codebuild/standard:7.0'
+#----------------------------------------------------#
+
+  CodeBuildECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+
+#----------------------------------------------------#
+
+  CodeBuildProjectDockerImage:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Ref 'AWS::StackName'
+      ServiceRole: !GetAtt
+        - CodeBuildServiceRole
+        - Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: dockerbuildspec.yaml
+      Artifacts:
+        Type: NO_ARTIFACT
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/standard:7.0'
+        EnvironmentVariables:
+          AWS_DEFAULT_REGION : !Ref DeployRegion
+          AWS_ACCOUNT_ID : '410490397670'
+          IMAGE_REPO_NAME : !GetAtt CodeBuildECRRepository.RepositoryName
+          IMAGE_TAG : 'latest'
+        PrivilegedMode: true
+
+#----------------------------------------------------#
+
   CodePipelineArtifactStore:
     Type: 'AWS::S3::Bucket'
     Properties:
       VersioningConfiguration:
         Status: Enabled
+
+#----------------------------------------------------#
+
   CodePipelineWebhook:
     Type: 'AWS::CodePipeline::Webhook'
     Properties:
@@ -180,6 +235,9 @@ Resources:
       TargetPipelineVersion: !GetAtt
         - CodePipeline
         - Version
+
+#----------------------------------------------------#
+
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
     Properties:
@@ -217,6 +275,21 @@ Resources:
                 Provider: CodeBuild
               Configuration:
                 ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: SourceCode
+              OutputArtifacts:
+                - Name: BuildOutput
+              ####    todo
+        - Name: BuildImage
+          Actions:
+            - Name: BuildImage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CodeBuildProjectDockerImage
               InputArtifacts:
                 - Name: SourceCode
               OutputArtifacts:
