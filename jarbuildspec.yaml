@@ -7,26 +7,29 @@ version: 0.2
 #    LOGIN_PASSWORD: /CodeBuild/dockerLoginPassword
 
 phases:
-#  install:
-#    commands:
-#      - echo Entered the install phase...
-#      - apt-get update -y
-#      - apt-get install -y maven
-#    finally:
-#      - echo This always runs even if the update or install command fails
-#  pre_build:
-#    commands:
-#      - echo Entered the pre_build phase...
-#      - docker login -u User -p $LOGIN_PASSWORD
-#    finally:
-#      - echo This always runs even if the login command fails
+  #  install:
+  #    commands:
+        - echo Entered the install phase...
+        - apt-get update -y
+        - apt-get install -y maven
+  #    finally:
+  #      - echo This always runs even if the update or install command fails
+  #  pre_build:
+  #    commands:
+  #      - echo Entered the pre_build phase...
+  #      - docker login -u User -p $LOGIN_PASSWORD
+  #    finally:
+  #      - echo This always runs even if the login command fails
   build:
     commands:
       - echo Entered the build phase...
       - echo Build started on `date`
-      - echo checking the code to compile before merge
-      - mvn clean
-      - mvn compile
+      - echo Running unit tests
+      - mvn test
+      - echo Running integration tests
+      - mvn verify
+      - echo Building executable
+      - mvn install
 #    finally:
 #      - echo This always runs even if the install command fails
 #  post_build:
@@ -45,10 +48,12 @@ phases:
 #      - 'cucumber/target/cucumber-tests.xml'
 #    discard-paths: yes
 #    file-format: CUCUMBERJSON # default is JUNITXML
-#artifacts:
-#  files:
-#    - target/messageUtil-1.0.jar
-#  discard-paths: yes
+artifacts:
+  files:
+    - target/CICD_AWS_Test-1.0-SNAPSHOT.jar
+    - Dockerfile
+    - dockerbuildspec.yaml
+  discard-paths: yes
 #  secondary-artifacts:
 #    artifact1:
 #      files:

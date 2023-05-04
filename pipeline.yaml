@@ -4,7 +4,7 @@ Description: |
 Parameters:
   RepositoryName:
     Type: String
-    Default: TestRepo
+    Default: CICD_AWS_Test
   DeployRegion:
     Type: String
     Default: eu-central-1
@@ -176,7 +176,26 @@ Resources:
         Type: LINUX_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
         Image: 'aws/codebuild/standard:7.0'
-#----------------------------------------------------#
+  #----------------------------------------------------#
+
+  CodeBuildProjectTestAndBuild:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Ref 'AWS::StackName'
+      ServiceRole: !GetAtt
+        - CodeBuildServiceRole
+        - Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: jarbuildspec.yaml
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/standard:7.0'
+
+  #----------------------------------------------------#
 
   CodeBuildECRRepository:
     Type: AWS::ECR::Repository
@@ -274,7 +293,7 @@ Resources:
                 Version: '1'
                 Provider: CodeBuild
               Configuration:
-                ProjectName: !Ref CodeBuildProject
+                ProjectName: !Ref CodeBuildProjectTestAndBuild
               InputArtifacts:
                 - Name: SourceCode
               OutputArtifacts:
@@ -291,6 +310,6 @@ Resources:
               Configuration:
                 ProjectName: !Ref CodeBuildProjectDockerImage
               InputArtifacts:
-                - Name: SourceCode
-              OutputArtifacts:
                 - Name: BuildOutput
+              OutputArtifacts:
+                - Name: ImageOutput
