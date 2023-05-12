@@ -292,7 +292,7 @@ Resources:
     Type: AWS::CodeDeploy::Application
     Properties:
       ApplicationName: TestApp
-      ComputePlatform: Server
+#      ComputePlatform: Server
 
   CodeDeployGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
