@@ -26,8 +26,8 @@ phases:
 artifacts:
   type: zip
   files:
-    - 'docker-compose.yml'
-    - 'appspec.yml'
-    - 'after_install.sh'
-    - 'start_container.sh'
-    - 'kill_container.sh'
+    - docker-compose.yaml
+    - appspec.yaml
+    - after_install.sh
+    - start_container.sh
+    - kill_container.sh
