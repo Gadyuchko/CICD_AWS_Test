@@ -5,14 +5,14 @@ files:
     destination: /home/ec2-user
 hooks:
   ApplicationStop:
-    - location: scripts/kill_container.sh
+    - location: kill_container.sh
       timeout: 20
       runas: ec2-user
   AfterInstall:
-    - location: scripts/after_install.sh
+    - location: after_install.sh
       timeout: 300
       runas: ec2-user
   ApplicationStart:
-    - location: scripts/start_container.sh
+    - location: start_container.sh
       timeout: 300
       runas: ec2-user

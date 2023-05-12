@@ -28,6 +28,6 @@ artifacts:
   files:
     - 'docker-compose.yml'
     - 'appspec.yml'
-    - 'scripts/after_install.sh'
-    - 'scripts/start_container.sh'
-    - 'scripts/kill_container.sh'
+    - 'after_install.sh'
+    - 'start_container.sh'
+    - 'kill_container.sh'
