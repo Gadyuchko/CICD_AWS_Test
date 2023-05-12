@@ -1,7 +1,17 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: |
-  Template for CICD pipeline.
+  Template for CICD pipeline from Github repository to EC2 container deployment. 
+  STarting point is a push to repository, involves 3 stages: 
+  1) test, compile, build jar executable stage - CodeBuild
+  2) build docker image and push to ECR - CodeBuild
+  3) deploy image from ECR to EC2 container - CodeDeploy
 Parameters:
+  InfrastructureStackName:
+    Type: String
+    Default: DEV-Infrastructure
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
   CodeBuildEnvironmentImage:
     Type: String
     Default: 'aws/codebuild/standard:7.0'
@@ -80,6 +90,36 @@ Resources:
 
 #----------------------------------------------------#
 
+  CodeDeployServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole'
+
+#      Policies:
+#        - PolicyName: root
+#          PolicyDocument:
+#            Version: 2012-10-17
+#            Statement:
+#              - Sid: CloudWatchLogsPolicy
+#                  Effect: Allow
+#                  Action:
+#                    - 'logs:CreateLogGroup'
+#                    - 'logs:CreateLogStream'
+#                    - 'logs:PutLogEvents'
+#                  Resource: '*'
+
+
+#----------------------------------------------------#
+
   CodePipelineServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -137,6 +177,17 @@ Resources:
                   - 's3:GetBucketAcl'
                   - 's3:GetBucketLocation'
                 Resource: '*'
+              - Sid: CodeDeployPolicy
+                Effect: Allow
+                Action:
+                  - 'codedeploy:CreateDeployment'
+                  - 'codedeploy:CreateDeploymentGroup'
+                  - 'codedeploy:GetApplication'
+                  - 'codedeploy:GetApplicationRevision'
+                  - 'codedeploy:GetDeployment'
+                  - 'codedeploy:GetDeploymentConfig'
+                  - 'codedeploy:RegisterApplicationRevision'
+                Resource: "*"
 
 #----------------------------------------------------#
 
@@ -149,37 +200,6 @@ Resources:
       Token: '{{resolve:ssm:/github/token2:1:1682928042139}}'
 
 #----------------------------------------------------#
-
-  CodeBuildProject:
-    Type: 'AWS::CodeBuild::Project'
-    Properties:
-      Name: !Sub '${AWS::StackName}-compile-test'
-      ServiceRole: !GetAtt
-        - CodeBuildServiceRole
-        - Arn
-      Source:
-        Type: GITHUB
-        Location: !Sub 'https://github.com/${GitHubOwner}/${GitHubRepository}.git'
-        BuildSpec: buildspec.yaml
-        Auth:
-          Type: OAUTH
-          Resource: !Ref CodeBuildSourceCredential
-      Artifacts:
-        Type: NO_ARTIFACTS
-      Triggers:
-        Webhook: true
-        FilterGroups:
-          - - Type: EVENT
-              Pattern: >-
-                PULL_REQUEST_CREATED, PULL_REQUEST_UPDATED,
-                PULL_REQUEST_REOPENED
-            - Type: BASE_REF
-              Pattern: !Sub '^refs/heads/${GitHubBranch}$'
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: !Ref CodeBuildEnvironmentImage
-  #----------------------------------------------------#
 
   CodeBuildProjectTestAndBuild:
     Type: 'AWS::CodeBuild::Project'
@@ -198,7 +218,7 @@ Resources:
         ComputeType: BUILD_GENERAL1_SMALL
         Image: !Ref CodeBuildEnvironmentImage
 
-  #----------------------------------------------------#
+#----------------------------------------------------#
 
   CodeBuildECRRepository:
     Type: AWS::ECR::Repository
@@ -268,6 +288,39 @@ Resources:
 
 #----------------------------------------------------#
 
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: TestApp
+      ComputePlatform: Server
+
+  CodeDeployGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+#      DeploymentConfigName: CodeDeployDefault.AllAtOnce
+      Ec2TagFilters:
+        - Key: !ImportValue
+            'Fn::Sub': '${InfrastructureStackName}-InstanceTagKey'
+          Value: !ImportValue
+            'Fn::Sub': '${InfrastructureStackName}-InstanceTagValue'
+          Type: KEY_AND_VALUE
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+#----------------------------------------------------#
+
+#  CodeDeployDeploymentConfig:
+#    Type: AWS::CodeDeploy::DeploymentConfig
+#    Properties:
+#      ComputePlatform: Server
+#      DeploymentConfigName: DEV single container config
+#      MinimumHealthyHosts:
+#        MinimumHealthyHosts
+#      TrafficRoutingConfig:
+#        TrafficRoutingConfig
+
+
+#----------------------------------------------------#
+
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
     Properties:
@@ -295,6 +348,7 @@ Resources:
                 OAuthToken: '{{resolve:ssm:/github/token2:1:1682928042139}}'
               OutputArtifacts:
                 - Name: SourceCode
+              RunOrder: 1
         - Name: Build
           Actions:
             - Name: Build
@@ -309,7 +363,7 @@ Resources:
                 - Name: SourceCode
               OutputArtifacts:
                 - Name: BuildOutput
-              ####    todo
+              RunOrder: 1
         - Name: BuildImage
           Actions:
             - Name: BuildImage
@@ -324,3 +378,18 @@ Resources:
                 - Name: BuildOutput
               OutputArtifacts:
                 - Name: ImageOutput
+              RunOrder: 1
+        - Name: DeployContainer
+          Actions:
+            - Name: DeployContainer
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: '1'
+                Provider: CodeDeploy
+              Configuration:
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployGroup
+              InputArtifacts:
+                - Name: ImageOutput
+              RunOrder: 1

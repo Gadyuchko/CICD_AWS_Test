@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description:  This template deploys a VPC, with a pair of public and private subnets spread
   across two Availability Zones if 'prod' env type variable is provided. It deploys an internet gateway, with a default
-  route on the public subnets. It deploys (Optionally) a pair of NAT gateways (one in each AZ),
+  route on the public subnets. It deploys (Optionally) a pair of NAT gateways (one in each AZ), option to create Nat instances
   and default routes for them in the private subnets.
 
 Parameters:
@@ -13,6 +13,19 @@ Parameters:
       - prod
       - dev
     ConstraintDescription: must specify prod or dev.
+
+  NatInstanceCreation:
+    Type: String
+    Default: false
+    AllowedValues:
+      - false
+      - true
+
+  NatInstanceType:
+    Description: Amazon EC2 instance type.
+    Type: String
+    Default: t2.micro
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
 
   EnvironmentName:
     Description: An environment name that is prefixed to resource names
@@ -44,10 +57,31 @@ Parameters:
     Type: String
     Default: 10.192.21.0/24
 
+Mappings:
+  AWSRegionToAMI:
+    us-east-1:
+      Linux: ami-7c807d14
+    us-west-2:
+      Linux: ami-1b3b462b
+    eu-west-1:
+      Linux: ami-672ce210
+    ap-southeast-2:
+      Linux: ami-6bf99c51
+    ap-northeast-1:
+      Linux: ami-9c2fb89c
+    eu-central-1:
+      Linux: ami-0c0dfedf1e4e18c3e
+
 Conditions:
     CreateProdResources: !Equals
       - !Ref EnvType
       - prod
+    CreateNatInstances: !Equals
+      - !Ref NatInstanceCreation
+      - true
+    CreateNatInProd: !And
+      - !Condition CreateProdResources
+      - !Condition CreateNatInstances
 
 Resources:
   VPC:
@@ -180,7 +214,6 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet2
 
-
   PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -188,7 +221,23 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName} Private Routes (AZ1)
-#
+
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Condition: CreateNatInstances
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref NatInstance1
+
+#  DefaultPrivateRoute2:
+#    Type: AWS::EC2::Route
+#    Condition: CreateNatInProd
+#    Properties:
+#      RouteTableId: !Ref PrivateRouteTable2
+#      DestinationCidrBlock: 0.0.0.0/0
+#      InstanceId: !Ref NatInstance2
+
 # optional NGW route
 #
 #  DefaultPrivateRoute1:
@@ -235,6 +284,73 @@ Resources:
       GroupName: "no-ingress-sg"
       GroupDescription: "Security group with no ingress rule"
       VpcId: !Ref VPC
+###############################################################################
+  NatInstance1:
+    Type: AWS::EC2::Instance
+    Condition: CreateNatInstances
+    Properties:
+      InstanceType: !Ref NatInstanceType
+      ImageId: !FindInMap [AWSRegionToAMI, !Ref "AWS::Region", Linux]
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} NAT Instance 1
+#      KeyName: !Ref pSshKey
+      NetworkInterfaces:
+        - SubnetId: !Ref PublicSubnet1
+          GroupSet:
+            - !Ref NatInstanceSecurityGroup
+          AssociatePublicIpAddress: true
+          DeviceIndex: 0
+
+  NatInstance2:
+    Type: AWS::EC2::Instance
+    Condition: CreateNatInProd
+    Properties:
+      InstanceType: !Ref NatInstanceType
+      ImageId: !FindInMap [ AWSRegionToAMI, !Ref "AWS::Region", AMI ]
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} NAT Instance 2
+#      KeyName: !Ref pSshKey
+      NetworkInterfaces:
+        - SubnetId: !Ref PublicSubnet2
+          GroupSet:
+            - !Ref NatInstanceSecurityGroup
+          AssociatePublicIpAddress: true
+          DeviceIndex: 0
+
+  NatInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateNatInstances
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Access to the nat instance
+      SecurityGroupIngress:
+        # http & https trafic
+        - CidrIp: !Ref PrivateSubnet1CIDR
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: tcp
+        - CidrIp: !Ref PrivateSubnet1CIDR
+          FromPort: 443
+          ToPort: 443
+          IpProtocol: tcp
+        #ssh access
+        - CidrIp: !Ref PrivateSubnet1CIDR
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+        # routing
+        - CidrIp: !Ref PrivateSubnet1CIDR
+          IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-Nat-SecurityGroup
+###########################################################################
 
 Outputs:
   VPC:
@@ -242,7 +358,15 @@ Outputs:
     Value: !Ref VPC
     Export:
       Name:
-        Fn::Sub: "${AWS::StackName}-VPC"
+        Fn::Sub: "${EnvironmentName}-VPC"
+
+  NatInstanceSecurityGroup:
+    Description: A reference to Nat instance Security Group
+    Condition: CreateNatInstances
+    Value: !Ref NatInstanceSecurityGroup
+    Export:
+      Name:
+        Fn::Sub: "${EnvironmentName}-Nat-SecurityGroup"
 
   PublicSubnets:
     Condition: CreateProdResources
@@ -259,7 +383,7 @@ Outputs:
     Value: !Ref PublicSubnet1
     Export:
       Name:
-        Fn::Sub: "${AWS::StackName}-PublicSubnet1"
+        Fn::Sub: "${EnvironmentName}-PublicSubnet1"
 
   PublicSubnet2:
     Condition: CreateProdResources
@@ -267,14 +391,14 @@ Outputs:
     Value: !Ref PublicSubnet2
     Export:
       Name:
-        Fn::Sub: "${AWS::StackName}-PublicSubnet2"
+        Fn::Sub: "${EnvironmentName}-PublicSubnet2"
 
   PrivateSubnet1:
     Description: A reference to the private subnet in the 1st Availability Zone
     Value: !Ref PrivateSubnet1
     Export:
       Name:
-        Fn::Sub: "${AWS::StackName}-PrivateSubnet1"
+        Fn::Sub: "${EnvironmentName}-PrivateSubnet1"
 
   PrivateSubnet2:
     Condition: CreateProdResources
@@ -282,7 +406,7 @@ Outputs:
     Value: !Ref PrivateSubnet2
     Export:
       Name:
-        Fn::Sub: "${AWS::StackName}-PrivateSubnet2"
+        Fn::Sub: "${EnvironmentName}-PrivateSubnet2"
 
   NoIngressSecurityGroup:
     Description: Security group with no ingress rule

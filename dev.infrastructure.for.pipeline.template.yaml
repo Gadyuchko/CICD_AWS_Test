@@ -1,0 +1,271 @@
+Description: >-
+  Create instances ready for CodeDeploy and Docker container : 
+  - EC2 instance for application with an associated instance profile and install the AWS CodeDeploy
+  Agent, Docker, Docker compose installed. 
+  - Additional Instance as Bastion Host for SSH connection.
+  Creates all necessary security groups for instances.
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  NetworkStackEnvName:
+    Description: >-
+      Name of an active CloudFormation stack that contains the networking
+      resources, such as the subnet and vpc, that will be used in this stack.
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+    Default: DEV
+  BastionSSHKeyName:
+    Description: Amazon EC2 key pair for Bastion Host
+    Type: AWS::EC2::KeyPair::KeyName
+  PrivateSSHKeyName:
+    Description: Amazon EC2 key pair
+    Type: AWS::EC2::KeyPair::KeyName
+  TagKey:
+    Description: The EC2 tag key that identifies this as a target for deployments.
+    Type: String
+    Default: Name
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+  TagValue:
+    Description: The EC2 tag value that identifies this as a target for deployments.
+    Type: String
+    Default: CodeDeployContainerApp
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+  InstanceType:
+    Description: Amazon EC2 instance type.
+    Type: String
+    Default: t2.micro
+    ConstraintDescription: Must be a valid Amazon EC2 instance type.
+  SSHLocation:
+    Description: >-
+      The IP address range that can be used to connect using SSH or RDP to the
+      Amazon EC2 instances.
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+Mappings:
+  ## Update AMIs to date you are using this template ##
+  RegionOS2AMI:
+    us-east-1:
+      Linux: ami-7c807d14
+      Windows: ami-ac3a1cc4
+    us-west-2:
+      Linux: ami-1b3b462b
+      Windows: ami-7f634e4f
+    eu-west-1:
+      Linux: ami-672ce210
+      Windows: ami-032b4b74
+    ap-southeast-2:
+      Linux: ami-6bf99c51
+      Windows: ami-a9077a93
+    ap-northeast-1:
+      Linux: ami-9c2fb89c
+      Windows: ami-4623a846
+    eu-central-1:
+      Linux: ami-0adbcf08fdd664fed
+      Windows: ami-3e737323
+Resources:
+  BastionHostEC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !FindInMap
+        - RegionOS2AMI
+        - !Ref 'AWS::Region'
+        - Linux
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref BastionSSHKeyName
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: 'true'
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref BastionHostSecurityGroup
+          SubnetId: !ImportValue
+            'Fn::Sub': '${NetworkStackEnvName}-PublicSubnet1'
+      Tags:
+        - Key: Name
+          Value: Bastion
+  LinuxEC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !FindInMap
+        - RegionOS2AMI
+        - !Ref 'AWS::Region'
+        - Linux
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref PrivateSSHKeyName
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      SubnetId: !ImportValue
+        'Fn::Sub': '${NetworkStackEnvName}-PrivateSubnet1'
+      SecurityGroupIds:
+        - !GetAtt
+          - BackendSecurityGroup
+          - GroupId
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -xe
+            sudo yum update -y
+            #Install docker
+            sudo amazon-linux-extras install docker
+            #Start docker service
+            sudo service docker start
+            sudo systemctl enable docker
+            #Set permissions
+            sudo usermod -a -G docker ec2-user
+            
+            #Install docker compose
+            curl -SL https://github.com/docker/compose/releases/download/v2.17.3/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
+            #Configure permissions
+            sudo chmod +x /usr/local/bin/docker-compose
+            
+            #Install codedeploy agent
+            sudo yum install ruby -y
+            sudo yum install wget
+            cd /home/ec2-user
+            wget https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
+            chmod +x ./install
+            sudo ./install auto
+            sudo service codedeploy-agent start
+            sudo systemctl enable codedeploy-agent
+            
+            echo 'Finished bootstrapping instance'
+      Tags:
+        - Key: !Ref TagKey
+          Value: !Ref TagValue
+      IamInstanceProfile: !Ref InstanceRoleInstanceProfile
+
+  BackendSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable HTTP access via port 80 and SSH via port 22 from Front End SG.
+      VpcId: !ImportValue
+        'Fn::Sub': '${NetworkStackEnvName}-VPC'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          SourceSecurityGroupId: !Ref FrontSecurityGroup
+          # additional security with ssh from bastion host
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          SourceSecurityGroupId: !Ref BastionHostSecurityGroup
+  BastionHostSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable SSH access via port 22.
+      VpcId: !ImportValue
+        'Fn::Sub': '${NetworkStackEnvName}-VPC'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+  DBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable HTTP access via port 80 from .
+      VpcId: !ImportValue
+        'Fn::Sub': '${NetworkStackEnvName}-VPC'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          SourceSecurityGroupId: !Ref BackendSecurityGroup
+  FrontSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable HTTP/S and SSH access via port 80 / 443 and 22.
+      VpcId: !ImportValue
+        'Fn::Sub': '${NetworkStackEnvName}-VPC'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+  InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+  InstanceRolePolicies:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: InstanceRole
+      PolicyDocument:
+        Statement:
+          - Sid: DefPolicy
+            Effect: Allow
+            Action:
+              - 'autoscaling:Describe*'
+              - 'cloudformation:Describe*'
+              - 'cloudformation:SignalResource'
+              - 'cloudformation:GetTemplate'
+              - 's3:Get*'
+            Resource: '*'
+          - Sid: ECRReadOnlyPolicy
+            Effect: Allow
+            Action:
+              - 'ecr:GetAuthorizationToken'
+              - 'ecr:BatchCheckLayerAvailability'
+              - 'ecr:GetDownloadUrlForLayer'
+              - 'ecr:GetRepositoryPolicy'
+              - 'ecr:DescribeRepositories'
+              - 'ecr:ListImages'
+              - 'ecr:DescribeImages'
+              - 'ecr:BatchGetImage'
+              - 'ecr:GetLifecyclePolicy'
+              - 'ecr:GetLifecyclePolicyPreview'
+              - 'ecr:ListTagsForResource'
+              - 'ecr:DescribeImageScanFindings'
+            Resource: '*'
+          - Sid: CloudWatchPolicy
+            Effect: Allow
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource: '*'
+      Roles:
+        - !Ref InstanceRole
+  InstanceRoleInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+
+###############################################################
+
+Outputs:
+  LinuxEC2InstanceTagKey:
+    Description: A reference to Instance tag key
+    Value: !Ref TagKey
+    Export:
+      Name: !Sub '${AWS::StackName}-InstanceTagKey'
+  LinuxEC2InstanceTagValue:
+    Description: A reference to Instance tag value
+    Value: !Ref TagValue
+    Export:
+      Name: !Sub '${AWS::StackName}-InstanceTagValue'
