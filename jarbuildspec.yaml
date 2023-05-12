@@ -52,7 +52,7 @@ phases:
 #    file-format: CUCUMBERJSON # default is JUNITXML
 artifacts:
   files:
-    - CICD_AWS_Test-1.0-SNAPSHOT.jar
+    - target/CICD_AWS_Test-1.0-SNAPSHOT.jar
     - Dockerfile
     - dockerbuildspec.yaml
     - docker-compose.yaml
@@ -60,7 +60,7 @@ artifacts:
     - scripts/after_install.sh
     - scripts/start_container.sh
     - scripts/kill_container.sh
-  discard-paths: no
+  discard-paths: yes
 #  secondary-artifacts:
 #    artifact1:
 #      files:
