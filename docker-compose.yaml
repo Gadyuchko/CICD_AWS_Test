@@ -14,4 +14,4 @@ services:
         awslogs-region: ${AWS_DEFAULT_REGION}
         awslogs-group: myLogGroup
         # or create logGroup (formation, console) and pass a env var then awslogs-create-group can be deleted
-        awslogs-create-group: true
+        awslogs-create-group: 'true'

@@ -17,7 +17,7 @@ phases:
       - echo Pushing the Docker image...
       - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
 
-      - sed -i -e "s|LOGIN_COMMAND|$(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)|g" after_install.sh
+      - sed -i -e "s/LOGIN_COMMAND/aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/g" after_install.sh
       - sed -i -e "s|AWS_DEFAULT_REGION_ENV|$AWS_DEFAULT_REGION|g" start_container.sh
       - sed -i -e "s|AWS_ACCOUNT_ID_ENV|$AWS_ACCOUNT_ID|g" start_container.sh
       - sed -i -e "s|AWS_IMAGE_REPO_NAME_ENV|$IMAGE_REPO_NAME|g" start_container.sh
