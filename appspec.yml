@@ -3,7 +3,11 @@ os: linux
 files:
   - source: /
     destination: /home/ec2-user
+    file_exists_behavior: OVERWRITE
 hooks:
+  BeforeInstall:
+    - location: Scripts/UnzipResourceBundle.sh
+    - location: Scripts/UnzipDataBundle.sh
   ApplicationStop:
     - location: kill_container.sh
       timeout: 20
