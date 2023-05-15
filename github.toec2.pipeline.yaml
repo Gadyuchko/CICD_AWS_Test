@@ -263,6 +263,7 @@ Resources:
   CodePipelineArtifactStore:
     Type: 'AWS::S3::Bucket'
     Properties:
+      BucketName: !Sub '${AWS::StackName}-ArtifactStore'
       VersioningConfiguration:
         Status: Enabled
 

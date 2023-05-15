@@ -87,6 +87,23 @@ Resources:
 
 #----------------------------------------------------#
 
+  CodeDeployServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole'
+
+
+  #----------------------------------------------------#
+
   CodePipelineServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -144,6 +161,17 @@ Resources:
                   - 's3:GetBucketAcl'
                   - 's3:GetBucketLocation'
                 Resource: '*'
+              - Sid: CodeDeployPolicy
+                Effect: Allow
+                Action:
+                  - 'codedeploy:CreateDeployment'
+                  - 'codedeploy:CreateDeploymentGroup'
+                  - 'codedeploy:GetApplication'
+                  - 'codedeploy:GetApplicationRevision'
+                  - 'codedeploy:GetDeployment'
+                  - 'codedeploy:GetDeploymentConfig'
+                  - 'codedeploy:RegisterApplicationRevision'
+                Resource: "*"
 
 #----------------------------------------------------#
 
@@ -250,6 +278,7 @@ Resources:
   CodePipelineArtifactStore:
     Type: 'AWS::S3::Bucket'
     Properties:
+      BucketName: !Sub '${AWS::StackName}-ArtifactStore'
       VersioningConfiguration:
         Status: Enabled
 
@@ -274,6 +303,26 @@ Resources:
         - Version
 
 #----------------------------------------------------#
+
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: TestApp
+  #      ComputePlatform: Server
+
+  CodeDeployGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      #      DeploymentConfigName: CodeDeployDefault.AllAtOnce
+      Ec2TagFilters:
+        - Key: !ImportValue
+            'Fn::Sub': '${InfrastructureStackName}-InstanceTagKey'
+          Value: !ImportValue
+            'Fn::Sub': '${InfrastructureStackName}-InstanceTagValue'
+          Type: KEY_AND_VALUE
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+  #----------------------------------------------------#
 
   CodePipeline:
     Type: 'AWS::CodePipeline::Pipeline'
@@ -316,7 +365,6 @@ Resources:
                 - Name: SourceCode
               OutputArtifacts:
                 - Name: BuildOutput
-              ####    todo
         - Name: BuildImage
           Actions:
             - Name: BuildImage
@@ -331,3 +379,17 @@ Resources:
                 - Name: BuildOutput
               OutputArtifacts:
                 - Name: ImageOutput
+        - Name: DeployContainer
+          Actions:
+            - Name: DeployContainer
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: '1'
+                Provider: CodeDeploy
+              Configuration:
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployGroup
+              InputArtifacts:
+                - Name: ImageOutput
+              RunOrder: 1
