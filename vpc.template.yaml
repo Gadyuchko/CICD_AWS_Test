@@ -308,7 +308,7 @@ Resources:
     Condition: CreateNatInProd
     Properties:
       InstanceType: !Ref NatInstanceType
-      ImageId: !FindInMap [ AWSRegionToAMI, !Ref "AWS::Region", AMI ]
+      ImageId: !FindInMap [ AWSRegionToAMI, !Ref "AWS::Region", Linux]
       SourceDestCheck: false
       Tags:
         - Key: Name

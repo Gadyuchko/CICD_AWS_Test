@@ -3,7 +3,8 @@ Description: >-
   - EC2 instance for application with an associated instance profile and install the AWS CodeDeploy
   Agent, Docker, Docker compose installed. 
   - Additional Instance as Bastion Host for SSH connection.
-  Creates all necessary security groups for instances.
+  Creates Application Load Balancer together with target group containing application instance, HTTP listener on port 80.
+  Creates all necessary security groups for instances and LB.
 AWSTemplateFormatVersion: 2010-09-09
 Parameters:
   NetworkStackEnvName:
@@ -144,6 +145,54 @@ Resources:
           Value: !Ref TagValue
       IamInstanceProfile: !Ref InstanceRoleInstanceProfile
 
+  BackEndTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 15
+      HealthyThresholdCount: 5
+      Matcher:
+        HttpCode: '200'
+      Name: !Sub '${AWS::StackName}-TG'
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: !Ref TagKey
+          Value: BackEndTargetGroup
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '20'
+      Targets:
+        - Id: !Ref LinuxEC2Instance
+          Port: 80
+      UnhealthyThresholdCount: 3
+      VpcId: !ImportValue
+        'Fn::Sub': '${NetworkStackEnvName}-VPC'
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref BackEndTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${AWS::StackName}-ALB'
+      Scheme: internet-facing
+      Subnets:
+        - !ImportValue
+            'Fn::Sub': '${NetworkStackEnvName}-PublicSubnet1'
+        - !ImportValue
+            'Fn::Sub': '${NetworkStackEnvName}-PublicSubnet2'
+      SecurityGroups:
+        - !GetAtt FrontSecurityGroup.GroupId
+
   BackendSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -160,6 +209,7 @@ Resources:
           FromPort: '22'
           ToPort: '22'
           SourceSecurityGroupId: !Ref BastionHostSecurityGroup
+
   BastionHostSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -171,6 +221,7 @@ Resources:
           FromPort: '22'
           ToPort: '22'
           CidrIp: 0.0.0.0/0
+
   DBSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -182,6 +233,7 @@ Resources:
           FromPort: '3306'
           ToPort: '3306'
           SourceSecurityGroupId: !Ref BackendSecurityGroup
+
   FrontSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:

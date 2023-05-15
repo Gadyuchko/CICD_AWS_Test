@@ -23,6 +23,11 @@ phases:
       - sed -i -e "s|AWS_IMAGE_REPO_NAME_ENV|$IMAGE_REPO_NAME|g" start_container.sh
       - sed -i -e "s|AWS_IMAGE_TAG_ENV|$IMAGE_TAG|g" start_container.sh
 
+      - sed -i -e "s|AWS_DEFAULT_REGION_ENV|$AWS_DEFAULT_REGION|g" kill_container.sh
+      - sed -i -e "s|AWS_ACCOUNT_ID_ENV|$AWS_ACCOUNT_ID|g" kill_container.sh
+      - sed -i -e "s|AWS_IMAGE_REPO_NAME_ENV|$IMAGE_REPO_NAME|g" kill_container.sh
+      - sed -i -e "s|AWS_IMAGE_TAG_ENV|$IMAGE_TAG|g" kill_container.sh
+
 artifacts:
   type: zip
   files:
