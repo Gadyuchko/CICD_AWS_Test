@@ -42,4 +42,4 @@ to protect merge action to master branch by issuing branch rule and including we
 EC2 instance must be set up to include Docker, docker-compose plugin, codedeploy agent installed on it,  
 template includes EC2 UserData script to install these on bootstrap. I wasn't able to 'win' over ```AWS::CloudFormation::Init```  
 for some reason signal is not sent from cfn-signal helper scrip for me, so if you know the solution to include these bootstrap action in Metadata  
-using ```AWS::CloudFormation::Init``` and helpper scripts in user data you are welcome to contribute.
+using ```AWS::CloudFormation::Init``` and helpper scripts in user data you are welcome to contribute .
