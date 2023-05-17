@@ -24,7 +24,7 @@ naming, and aws logging driver with automatic logGroup creation option to push a
 
 ### Project Architecture
 
-![CICD Pepeline GITHUB - AWS SpringBoot Docker Container App (2)](https://github.com/Gadyuchko/CICD_GitHub_AWS_EC2_SingleContainer/assets/51369173/23186ac9-5068-4d25-a051-5a705604d1db)
+![CICD Pepeline GITHUB - AWS SpringBoot Docker Container App (3)](https://github.com/Gadyuchko/CICD_GitHub_AWS_EC2_SingleContainer/assets/51369173/b4d50715-f3a6-464f-8143-05a3a8d8ec37)
 
 ### Resource provisioning
 Project leverages Infrastructure as Code (IaC) supplied by CloudFormation. All resources are created in CloudFormation stacks:
